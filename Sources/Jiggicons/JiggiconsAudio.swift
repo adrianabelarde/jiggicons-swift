@@ -14,10 +14,12 @@ public final class JiggiconsAudio {
         didSet { volume = min(1, max(0, volume)) }
     }
 
-    private var players: [String: AVAudioPlayer] = [:]
-    private var current: AVAudioPlayer?
+    // All AVAudioSession and AVAudioPlayer work runs on a dedicated serial
+    // background queue so preparing, activating, playing or stopping audio
+    // never blocks the main thread or triggers Thread Performance Checker warnings.
+    private let queue = DispatchQueue(label: "com.jiggicons.audio", qos: .userInitiated)
+    private let worker = Worker()
     private var lastTap = -Double.infinity
-    private var sessionReady = false
 
     /// Quick repeated taps play softer, so a burst of taps never shouts.
     nonisolated static func gain(forInterval seconds: Double) -> Double {
@@ -25,52 +27,75 @@ public final class JiggiconsAudio {
         return 0.42 + 0.58 * t * t * (3 - 2 * t)
     }
 
-    /// Loads a cue so its first play starts at once.
+    /// Loads a cue off the main thread so its first play starts at once.
     public func preload(_ icon: JiggiconData, variant: JiggiconVariant) {
         guard let key = icon.soundKey(for: variant) else { return }
-        _ = player(for: key)
+        let worker = self.worker
+        queue.async { worker.preload(key: key) }
     }
 
     /// Plays an icon's sound. With `overlap` it plays beside a sound still
     /// ringing instead of cutting it off.
     @discardableResult
     public func play(_ icon: JiggiconData, variant: JiggiconVariant = .outline, volume level: Double = 1, overlap: Bool = false) -> Bool {
-        guard volume > 0, level > 0, let key = icon.soundKey(for: variant), let player = player(for: key) else { return false }
-        prepareSession()
+        guard volume > 0, level > 0, let key = icon.soundKey(for: variant) else { return false }
         let now = ProcessInfo.processInfo.systemUptime
-        let gain = Self.gain(forInterval: now - lastTap) * volume * min(1, level)
+        let gain = Float(Self.gain(forInterval: now - lastTap) * volume * min(1, level))
         lastTap = now
-        if !overlap, let current, current !== player { current.stop() }
-        player.volume = Float(gain)
-        player.currentTime = 0
-        player.play()
-        current = player
+        let worker = self.worker
+        queue.async { worker.play(key: key, gain: gain, overlap: overlap) }
         return true
     }
 
     public func stop() {
-        current?.stop()
-        current = nil
+        let worker = self.worker
+        queue.async { worker.stop() }
     }
 
-    private func player(for key: String) -> AVAudioPlayer? {
-        if let player = players[key] { return player }
-        guard let url = Jiggicons.soundURL(key), let player = try? AVAudioPlayer(contentsOf: url) else { return nil }
-        player.prepareToPlay()
-        players[key] = player
-        return player
-    }
+    // Confined exclusively to `queue`.
+    private final class Worker: @unchecked Sendable {
+        private var players: [String: AVAudioPlayer] = [:]
+        private var current: AVAudioPlayer?
+        private var sessionReady = false
 
-    // Icon sounds are interface sounds: they mix with the user's music and
-    // stay quiet when the ring/silent switch is set to silent.
-    private func prepareSession() {
-        guard !sessionReady else { return }
-        sessionReady = true
-        #if os(iOS) || os(tvOS) || os(visionOS)
-        let session = AVAudioSession.sharedInstance()
-        if session.category != .ambient && session.category != .playback && session.category != .playAndRecord {
-            try? session.setCategory(.ambient, options: [.mixWithOthers])
+        func preload(key: String) {
+            _ = player(for: key)
         }
-        #endif
+
+        func play(key: String, gain: Float, overlap: Bool) {
+            guard let player = player(for: key) else { return }
+            if !overlap, let current, current !== player { current.stop() }
+            player.volume = gain
+            player.currentTime = 0
+            player.play()
+            current = player
+        }
+
+        func stop() {
+            current?.stop()
+            current = nil
+        }
+
+        private func player(for key: String) -> AVAudioPlayer? {
+            if let player = players[key] { return player }
+            prepareSession()
+            guard let url = Jiggicons.soundURL(key), let player = try? AVAudioPlayer(contentsOf: url) else { return nil }
+            player.prepareToPlay()
+            players[key] = player
+            return player
+        }
+
+        // Icon sounds are interface sounds: they mix with the user's music and
+        // stay quiet when the ring/silent switch is set to silent.
+        private func prepareSession() {
+            guard !sessionReady else { return }
+            sessionReady = true
+            #if os(iOS) || os(tvOS) || os(visionOS)
+            let session = AVAudioSession.sharedInstance()
+            if session.category != .ambient && session.category != .playback && session.category != .playAndRecord {
+                try? session.setCategory(.ambient, options: [.mixWithOthers])
+            }
+            #endif
+        }
     }
 }
