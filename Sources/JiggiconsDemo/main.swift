@@ -72,10 +72,48 @@ func render(to folder: URL) throws {
     print("wrote", file.path)
 }
 
+// Icons the CLI added (`npx jiggicons add <icon> --format swift`), in all four
+// styles at rest and mid-motion:
+//   swift run JiggiconsDemo --render <folder> --added <the CLI's folder> --icons search,shopping-bag
+@available(macOS 13, *)
+@MainActor
+func renderAdded(_ names: [String], from added: URL, to folder: URL) throws {
+    Jiggicons.register(folder: added)
+    let ink = Color(red: 0.09, green: 0.09, blue: 0.09)
+    let sheet = VStack(spacing: 0) {
+        ForEach(names, id: \.self) { name in
+            HStack(spacing: 0) {
+                ForEach(JiggiconVariant.allCases, id: \.self) { variant in
+                    ForEach([nil, 0.15] as [Double?], id: \.self) { time in
+                        if let icon = Jiggicons.icon(named: name) {
+                            JiggiconFrame(icon: icon, variant: variant, color: ink, seconds: time)
+                                .frame(width: 96, height: 96).padding(12)
+                        }
+                    }
+                }
+            }
+        }
+    }.background(Color.white)
+    let renderer = ImageRenderer(content: sheet)
+    renderer.scale = 1
+    guard let image = renderer.cgImage else { throw CocoaError(.fileWriteUnknown) }
+    let file = folder.appendingPathComponent("added.png")
+    try NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: file)
+    print("wrote", file.path)
+}
+
 let arguments = CommandLine.arguments
 if let index = arguments.firstIndex(of: "--render"), index + 1 < arguments.count {
     if #available(macOS 13, *) {
-        try MainActor.assumeIsolated { try render(to: URL(fileURLWithPath: arguments[index + 1])) }
+        try MainActor.assumeIsolated {
+            let folder = URL(fileURLWithPath: arguments[index + 1])
+            try render(to: folder)
+            if let added = arguments.firstIndex(of: "--added"), added + 1 < arguments.count,
+               let icons = arguments.firstIndex(of: "--icons"), icons + 1 < arguments.count {
+                try renderAdded(arguments[icons + 1].split(separator: ",").map(String.init),
+                                from: URL(fileURLWithPath: arguments[added + 1]), to: folder)
+            }
+        }
     } else {
         print("Rendering frames needs macOS 13")
     }

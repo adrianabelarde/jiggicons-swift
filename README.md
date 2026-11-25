@@ -1,13 +1,14 @@
 # Jiggicons for SwiftUI
 
 Animated Jiggicons for iOS, iPadOS, macOS, tvOS and visionOS. Every icon has a spring motion and a
-spatial sound. This package has the 80 free icons.
+spatial sound. This package has the 80 free icons, and plays any icon from the full set that you add
+with the Jiggicons CLI.
 
 In Xcode choose File → Add Package Dependencies and enter `https://github.com/adrianabelarde/jiggicons-swift`,
 or add it to `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/adrianabelarde/jiggicons-swift", from: "0.1.0")
+.package(url: "https://github.com/adrianabelarde/jiggicons-swift", from: "0.2.0")
 ```
 
 Then:
@@ -43,6 +44,26 @@ is set to silent. Your app's own audio session is left alone if it already set o
 ```swift
 JiggiconsAudio.shared.volume = 0.6
 ```
+
+## Icons from the full set
+
+This package has the 80 free icons. With a Jiggicons licence, the CLI puts any of the other icons into your
+Xcode project. In the folder that holds your `.xcodeproj`:
+
+```bash
+npx jiggicons login
+npx jiggicons add shopping-bag search
+```
+
+It writes each icon's data and sounds into `YourApp/Jiggicons`. Xcode 16 includes that folder in your app by
+itself; in an older project, drag the folder into Xcode once. Then use the icon by name:
+
+```swift
+JiggIcon("shopping-bag", variant: .glass, size: 28, sound: true)
+```
+
+Icons are looked for in your app's main bundle. If they live in a framework or a Swift package, call
+`Jiggicons.register(bundle: .module)` first; `Jiggicons.register(folder:)` adds a folder on disk.
 
 ## Frames and other icons
 

@@ -40,6 +40,27 @@ for entry in Jiggicons.all {
 }
 expect(Jiggicons.icon(named: "shopping-bag") == nil, "paid icons are not bundled")
 
+// Icons added with `npx jiggicons add <icon> --format swift`: point
+// JIGGICONS_ADDED at the folder the CLI wrote and name the icon in
+// JIGGICONS_ADDED_ICON to check that it is found, drawn and heard.
+if let folder = ProcessInfo.processInfo.environment["JIGGICONS_ADDED"],
+   let name = ProcessInfo.processInfo.environment["JIGGICONS_ADDED_ICON"] {
+    expect(Jiggicons.icon(named: name) == nil, "\(name) is not found before its folder is registered")
+    Jiggicons.register(folder: URL(fileURLWithPath: folder))
+    if let icon = Jiggicons.icon(named: name) {
+        expect(icon.availableVariants == JiggiconVariant.allCases, "added \(name) has four styles")
+        for variant in JiggiconVariant.allCases {
+            guard let drawing = icon.drawing(for: variant) else { continue }
+            expect(icon.motion[drawing.motion] != nil, "added \(name) \(variant) has motion")
+            if let key = drawing.sound, let url = Jiggicons.soundURL(key) {
+                let player = try? AVAudioPlayer(contentsOf: url)
+                expect((player?.duration ?? 0) > 0.05, "added \(name) \(variant) sound \(url.lastPathComponent) plays")
+            } else { expect(false, "added \(name) \(variant) has a sound file") }
+        }
+        print("Added icon \(name) loads from \(folder).")
+    } else { expect(false, "added \(name) loads from \(folder)") }
+}
+
 // Path data.
 let square = try PathData.parse("M1 1L3 1L3 3L1 3Z")
 expect(square.boundingBox == CGRect(x: 1, y: 1, width: 2, height: 2), "a square path has the right bounds")
